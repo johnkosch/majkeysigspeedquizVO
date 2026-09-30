@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Major Key Signature Voice Quiz</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f2f3f5;
+    color: #171717;
+    line-height: 1.5;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: 0 3px 16px rgba(0,0,0,.08);
+  }
+  h1 { margin-top: 0; }
+  .status {
+    border: 2px solid #777;
+    border-radius: 12px;
+    padding: 18px;
+    margin: 20px 0;
+  }
+  .prompt {
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+  .answer {
+    font-size: 1.2rem;
+    min-height: 2em;
+    margin-top: 8px;
+  }
+  button {
+    font: inherit;
+    font-weight: 650;
+    padding: 12px 18px;
+    margin: 6px 6px 6px 0;
+    border: 2px solid #333;
+    border-radius: 9px;
+    background: #fff;
+    cursor: pointer;
+  }
+  button:focus, input:focus {
+    outline: 4px solid #6aa9ff;
+    outline-offset: 2px;
+  }
+  button.primary {
+    background: #171717;
+    color: white;
+  }
+  #answerInput {
+    width: 100%;
+    padding: 12px;
+    font-size: 1.2rem;
+    border: 2px solid #555;
+    border-radius: 8px;
+  }
+  .instructions {
+    background: #f7f7f7;
+    padding: 14px 18px;
+    border-radius: 10px;
+  }
+  .timer {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 8px 0 18px;
+  }
+  .score {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-top: 18px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Major Key Signature Voice Quiz</h1>
+
+  <div class="instructions">
+    <p><strong>Instructions:</strong> Listen to the prompt, then type the tonic pitch and press Enter. Each key signature appears once.</p>
+  </div>
+
+  <div class="status" aria-live="polite" aria-atomic="true">
+    <div id="prompt" class="prompt">Press Start Quiz to begin.</div>
+    <div id="answer" class="answer"></div>
+  </div>
+
+  <div class="studentControls">
+    <button id="startButton" class="primary">Start Quiz</button>
+    <button id="resetButton">Reset Quiz</button>
+  </div>
+
+  <label for="answerInput">Tonic pitch</label>
+  <input id="answerInput" type="text" autocomplete="off" autocapitalize="characters"
+         spellcheck="false" aria-describedby="typingHelp"
+         placeholder="Type tonic pitch and press Enter">
+  <div id="typingHelp">Examples: C, F-sharp, B-flat.</div>
+
+  <div id="timer" class="timer" aria-live="polite">Time: 00:00.0</div>
+  <div id="score" class="score" aria-live="polite"></div>
+
+  <div id="live" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+</main>
+
+<script>
+const KEYS = [
+  {key:"Gb", name:"G-flat major", prompt:"six flats"},
+  {key:"Db", name:"D-flat major", prompt:"five flats"},
+  {key:"Ab", name:"A-flat major", prompt:"four flats"},
+  {key:"Eb", name:"E-flat major", prompt:"three flats"},
+  {key:"Bb", name:"B-flat major", prompt:"two flats"},
+  {key:"F",  name:"F major",       prompt:"one flat"},
+  {key:"G",  name:"G major",       prompt:"one sharp"},
+  {key:"D",  name:"D major",       prompt:"two sharps"},
+  {key:"A",  name:"A major",       prompt:"three sharps"},
+  {key:"E",  name:"E major",       prompt:"four sharps"},
+  {key:"B",  name:"B major",       prompt:"five sharps"},
+  {key:"F#", name:"F-sharp major", prompt:"six sharps"}
+];
+
+let order = [];
+let index = -1;
+let current = null;
+let correct = 0;
+let answered = false;
+let timerStart = 0;
+let timerRunning = false;
+let timerFrame = null;
+
+const promptEl = document.getElementById("prompt");
+const answerEl = document.getElementById("answer");
+const inputEl = document.getElementById("answerInput");
+const scoreEl = document.getElementById("score");
+const liveEl = document.getElementById("live");
+
+function speak(text) {
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.95;
+  speechSynthesis.speak(utterance);
+}
+
+function announce(text) {
+  liveEl.textContent = "";
+  setTimeout(() => { liveEl.textContent = text; }, 20);
+  speak(text);
+}
+
+function shuffle(array) {
+  return [...array].sort(() => Math.random() - 0.5);
+}
+
+function formatTime(ms) {
+  const total = ms / 1000;
+  const minutes = Math.floor(total / 60);
+  const seconds = Math.floor(total % 60);
+  const tenths = Math.floor((total % 1) * 10);
+  return `${String(minutes).padStart(2,"0")}:${String(seconds).padStart(2,"0")}.${tenths}`;
+}
+
+function renderTimer() {
+  const elapsed = timerRunning ? performance.now() - timerStart : (window.finalElapsed || 0);
+  document.getElementById("timer").textContent = `Time: ${formatTime(elapsed)}`;
+}
+
+function timerTick() {
+  renderTimer();
+  if (timerRunning) timerFrame = requestAnimationFrame(timerTick);
+}
+
+function startTimer() {
+  if (timerRunning) return;
+  window.finalElapsed = 0;
+  timerStart = performance.now();
+  timerRunning = true;
+  timerTick();
+}
+
+function stopTimer() {
+  if (!timerRunning) return;
+  window.finalElapsed = performance.now() - timerStart;
+  timerRunning = false;
+  if (timerFrame !== null) {
+    cancelAnimationFrame(timerFrame);
+    timerFrame = null;
+  }
+  renderTimer();
+}
+
+function startQuiz() {
+  if (timerRunning) stopTimer();
+
+  order = shuffle(KEYS);
+
+  index = 0;
+  correct = 0;
+  startTimer();
+  scoreEl.textContent = "Question 1 of 24.";
+  showQuestion();
+}
+
+function focusAnswer() {
+  inputEl.focus();
+  inputEl.select();
+}
+
+function showQuestion() {
+  if (index < 0 || index >= order.length) return;
+
+  current = order[index];
+  answered = false;
+  inputEl.value = "";
+  answerEl.textContent = "";
+  promptEl.textContent = `${current.prompt}.`;
+  scoreEl.textContent = `Question ${index + 1} of ${order.length}.`;
+
+  // Give VoiceOver/browser speech a moment to finish before moving focus.
+  setTimeout(focusAnswer, 250);
+  announce(`${current.prompt}.`);
+}
+
+function normalize(text) {
+  let s = text.toLowerCase().trim();
+  s = s.replace(/[.,!?]/g, "");
+  s = s.replace(/\bmajor\b/g, "");
+  s = s.replace(/\s+/g, " ");
+
+  const replacements = [
+    [/\bf sharp\b/g, "f#"],
+    [/\bf-sharp\b/g, "f#"],
+    [/\bfsharp\b/g, "f#"],
+    [/\bb flat\b/g, "bb"],
+    [/\bb-flat\b/g, "bb"],
+    [/\ba flat\b/g, "ab"],
+    [/\ba-flat\b/g, "ab"],
+    [/\bd flat\b/g, "db"],
+    [/\bd-flat\b/g, "db"],
+    [/\be flat\b/g, "eb"],
+    [/\be-flat\b/g, "eb"],
+    [/\bg flat\b/g, "gb"],
+    [/\bg-flat\b/g, "gb"],
+    [/\bc sharp\b/g, "c#"],
+    [/\bc-sharp\b/g, "c#"],
+    [/\bd sharp\b/g, "d#"],
+    [/\bd-sharp\b/g, "d#"],
+    [/\bg sharp\b/g, "g#"],
+    [/\bg-sharp\b/g, "g#"],
+    [/\bbee\b/g, "b"],
+    [/\bsee\b/g, "c"],
+    [/\bdee\b/g, "d"],
+    [/\bgee\b/g, "g"],
+    [/\beee\b/g, "e"]
+  ];
+  for (const [pattern, replacement] of replacements) {
+    s = s.replace(pattern, replacement);
+  }
+  return s;
+}
+
+function interpretAnswer(text) {
+  const s = normalize(text);
+  const aliases = {
+    "gb":"Gb", "g-flat":"Gb",
+    "db":"Db", "d-flat":"Db",
+    "ab":"Ab", "a-flat":"Ab",
+    "eb":"Eb", "e-flat":"Eb",
+    "bb":"Bb", "b-flat":"Bb",
+    "f":"F", "c":"C", "g":"G", "d":"D", "a":"A", "e":"E", "b":"B",
+    "f#":"F#", "f sharp":"F#"
+  };
+  return aliases[s] || aliases[s.replace(/\s+/g, "")] || null;
+}
+
+function submitAnswer(rawText) {
+  if (!current || answered) return;
+
+  const interpreted = interpretAnswer(rawText);
+  if (!interpreted) {
+    answerEl.textContent = "Please enter a tonic pitch.";
+    speak("Please enter a tonic pitch.");
+    return;
+  }
+
+  answered = true;
+  inputEl.disabled = true;
+
+  if (interpreted === current.key) {
+    correct++;
+    answerEl.textContent = "Correct.";
+    announce("Correct.");
+  } else {
+    answerEl.textContent = `Incorrect. The answer is ${current.name}.`;
+    announce(`Incorrect. The answer is ${current.name}.`);
+  }
+
+  scoreEl.textContent = `Score: ${correct} of ${index + 1} answered.`;
+
+  setTimeout(() => {
+    index++;
+    if (index >= order.length) {
+      stopTimer();
+      current = null;
+      promptEl.textContent = "Quiz complete.";
+      answerEl.textContent = "";
+      const finalTime = formatTime(window.finalElapsed || 0);
+      scoreEl.textContent = `Final score: ${correct} of ${order.length}. Time: ${finalTime}.`;
+      announce(`Quiz complete. You got ${correct} of ${order.length} correct. Your time was ${finalTime}.`);
+      inputEl.disabled = true;
+      return;
+    }
+    inputEl.disabled = false;
+    showQuestion();
+  }, 1400);
+}
+
+document.getElementById("startButton").addEventListener("click", startQuiz);
+
+document.getElementById("resetButton").addEventListener("click", () => {
+  if (timerRunning) stopTimer();
+  order = [];
+  index = -1;
+  current = null;
+  correct = 0;
+  answered = false;
+  window.finalElapsed = 0;
+  renderTimer();
+  promptEl.textContent = "Press Start Quiz to begin.";
+  answerEl.textContent = "";
+  scoreEl.textContent = "";
+  inputEl.value = "";
+  inputEl.disabled = false;
+  inputEl.focus();
+  announce("Quiz reset. Press Start Quiz to begin.");
+});
+
+inputEl.addEventListener("keydown", e => {
+  if (e.key === "Enter" && current && !answered) {
+    e.preventDefault();
+    submitAnswer(inputEl.value);
+  }
+});
+
+// Allow Return/Enter to start the quiz from anywhere on the initial screen.
+document.addEventListener("keydown", e => {
+  if ((e.key === "Enter" || e.key === "Return") && !timerRunning && !current) {
+    e.preventDefault();
+    startQuiz();
+  }
+});
+</script>
+</body>
+</html>
